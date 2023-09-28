@@ -10,14 +10,17 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"sync"
 	"time"
+
+	"golang.org/x/sync/errgroup"
 )
 
 var TELNET_ADDR = "koukoku.shadan.open.ad.jp:992"
 var BOM = [...]byte{0xEF, 0xBB, 0xBF}
 
 func main() {
+	// if write/read fails, the current loop will be end and new one will run
+	// i.e. reconnecting will be triggered.
 	for {
 		conn, err := tls.Dial("tcp", TELNET_ADDR, nil)
 
@@ -33,65 +36,39 @@ func main() {
 		// Send nobody command to suppress the notice
 		fmt.Fprintln(conn, "nobody")
 
-		var wg sync.WaitGroup
+		var eg errgroup.Group
 
-		// Read
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
+		// read
+		eg.Go(func() error {
 			scanner := bufio.NewScanner(conn)
-
 			for scanner.Scan() {
-				text := scanner.Text()
-				bytes := scanner.Bytes()
-
-				// Ignore the line if it includes BEL character
-				if text == "\a" {
-					continue
-				}
-
-				// Ignore the line if it includes BOM character
-				if len(bytes) >= len(BOM) &&
-					bytes[0] == BOM[0] &&
-					bytes[1] == BOM[1] &&
-					bytes[2] == BOM[2] {
-					continue
-				}
-
-				fmt.Println(text)
+				fmt.Println(scanner.Text())
 			}
-		}()
 
-		// Write
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+			if err := scanner.Err(); err != nil {
+				return fmt.Errorf("error while reading: %v", err)
+			}
 
+			return nil
+		})
+
+		// write
+		eg.Go(func() error {
 			scanner := bufio.NewScanner(os.Stdin)
 			for scanner.Scan() {
 				fmt.Fprintln(conn, scanner.Text())
 			}
-		}()
 
-		// Attempt to write a byte into the connection to check if it's still open
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-
-			for {
-				conn.SetDeadline(time.Now().Add(time.Second))
-				_, err := conn.Read(make([]byte, 0))
-				if err != nil {
-					log.Printf("error: %v\n", err)
-					break
-				}
-
-				time.Sleep(time.Second)
+			if err := scanner.Err(); err != nil {
+				return fmt.Errorf("error while writing: %v", err)
 			}
-		}()
 
-		wg.Wait()
-		time.Sleep(time.Second * 1)
+			return nil
+		})
+
+		if err := eg.Wait(); err != nil {
+			log.Println(err)
+			time.Sleep(time.Second)
+		}
 	}
 }
