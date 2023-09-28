@@ -63,6 +63,17 @@ func main() {
 			}
 		}()
 
+		// Write
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			scanner := bufio.NewScanner(os.Stdin)
+			for scanner.Scan() {
+				fmt.Fprintln(conn, scanner.Text())
+			}
+		}()
+
 		// Attempt to write a byte into the connection to check if it's still open
 		wg.Add(1)
 		go func() {
