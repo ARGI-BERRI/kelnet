@@ -8,6 +8,8 @@ import (
 	"bufio"
 	"crypto/tls"
 	"fmt"
+	"log"
+	"os"
 	"sync"
 	"time"
 )
@@ -20,19 +22,21 @@ func main() {
 		conn, err := tls.Dial("tcp", TELNET_ADDR, nil)
 
 		if err != nil {
-			fmt.Printf("[%s] Failed to connect: %v\n", timestamp(), err)
+			log.Printf("Failed to connect: %v\n", err)
 			return
 		}
 
 		defer conn.Close()
+
+		log.Printf("connected to %v\n", TELNET_ADDR)
 
 		// Send nobody command to suppress the notice
 		fmt.Fprintln(conn, "nobody")
 
 		var wg sync.WaitGroup
 
+		// Read
 		wg.Add(1)
-		// Receives bytes from the server
 		go func() {
 			defer wg.Done()
 
@@ -60,27 +64,23 @@ func main() {
 		}()
 
 		// Attempt to write a byte into the connection to check if it's still open
+		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
 			for {
-				conn.SetWriteDeadline(time.Now().Add(time.Second))
-				_, err := conn.Write([]byte("..."))
-
+				conn.SetDeadline(time.Now().Add(time.Second))
+				_, err := conn.Read(make([]byte, 0))
 				if err != nil {
-					fmt.Printf("[%s] Disconnected: %v\n", timestamp(), err)
+					log.Printf("error: %v\n", err)
 					break
 				}
 
-				fmt.Printf("[%s] Healthcheck is done.\n", timestamp())
-				time.Sleep(time.Second * 3)
+				time.Sleep(time.Second)
 			}
 		}()
 
 		wg.Wait()
+		time.Sleep(time.Second * 1)
 	}
-}
-
-func timestamp() string {
-	return time.Now().Format("15:04:05")
 }
